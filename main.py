@@ -121,23 +121,32 @@ def normalize_result(status: str, result_str: str) -> tuple[str, str]:
     resp = (result_str or "").strip() or "UNKNOWN"
     up   = resp.upper()
 
-    # ── check for processing first ──────────────────────────
+    # ===== PROCESSING → تعاد فحصها =====
     if "PROCESSING" in up or "YOUR PAYMENT IS BEING PROCESSED" in up:
-        return "processing", resp
+        return "error", "RETRY_LATER"  # ← بدل processing
 
+    # ===== CHARGED =====
     if any(k in up for k in ("ORDER_PLACED", "SUCCESSFULRECEIPT", "PROCESSEDRECEIPT", "ORDER_PAID")):
         return "charged", resp
+
+    # ===== APPROVED =====
     if any(k in up for k in _APPROVED_KEYWORDS):
         return "approved", resp
+
+    # ===== DECLINED =====
     if status == "declined" or any(k in up for k in _DECLINED_KEYWORDS):
         if not any(k in up for k in _INFRA_ERROR_KEYWORDS):
             return "declined", resp
+
     if status in ("charged", "approved", "declined"):
         return status, resp
+
     if any(k in up for k in _INFRA_ERROR_KEYWORDS):
         return "error", resp
+
     if resp != "UNKNOWN":
         return "declined", resp
+
     return "error", resp
 
 
