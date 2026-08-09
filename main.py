@@ -36,15 +36,14 @@ except ImportError:
 # ══════════════════════════════════════════════════════════════
 #  Config
 # ══════════════════════════════════════════════════════════════
-PORT             = int(os.environ.get("CHECKER_PORT", os.environ.get("PORT", "6767")))
+PORT             = int(os.environ.get("CHECKER_PORT", os.environ.get("PORT", "8000")))  # ← معدل لـ 8000
 REQUEST_TIMEOUT  = 90
 MEMORY_LIMIT_PCT = 90
 
 # ── إعدادات الأداء ────────────────────────────────────────────
-MAX_PRODUCTS_PER_CHECK = int(os.environ.get("MAX_PRODUCTS", "100"))  # عدد المنتجات لكل فحص
-MAX_WORKERS = int(os.environ.get("MAX_WORKERS", "24"))                # عدد الوركرز
-MAX_THREADS_PER_WORKER = int(os.environ.get("MAX_THREADS_PER_WORKER", "200"))  # خيوط لكل ووركر
-# إجمالي الخيوط = MAX_WORKERS * MAX_THREADS_PER_WORKER = 24 * 200 = 4800
+MAX_PRODUCTS_PER_CHECK = int(os.environ.get("MAX_PRODUCTS", "100"))
+MAX_WORKERS = int(os.environ.get("MAX_WORKERS", "24"))
+MAX_THREADS_PER_WORKER = int(os.environ.get("MAX_THREADS_PER_WORKER", "200"))
 
 logging.basicConfig(level=logging.INFO, format="%(message)s",
                     handlers=[logging.StreamHandler()])
@@ -157,7 +156,6 @@ async def check_card_async(cc: str, site: str, proxy: str) -> dict:
         pass
 
     try:
-        # ── نمرر max_products للدالة ──────────────────────────
         res = await auto_async.run_checkout_for_card_async(
             site, cc, proxy_url, max_products=MAX_PRODUCTS_PER_CHECK
         )
@@ -367,7 +365,7 @@ async def route_check(
 if __name__ == "__main__":
     import multiprocessing
     cpu_count = multiprocessing.cpu_count()
-    workers   = min(MAX_WORKERS, cpu_count * 2)  # استخدام الإعداد المخصص مع حد أقصى
+    workers   = min(MAX_WORKERS, cpu_count * 2)
 
     print("━" * 50)
     print("  VeNoM Checker API")
