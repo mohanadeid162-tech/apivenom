@@ -126,7 +126,8 @@ _product_cache_lock = __import__("threading").Lock()
 _CACHE_TTL = 3600
 
 async def find_cheapest_product(client: AsyncTLSClient, shop_url: str, 
-                                min_price: float = 0.50, max_price: float = 30.0,
+                                min_price: float = 0.01, 
+                                max_price: float = 50.0,
                                 max_products: int = 100):
     """
     تجيب أرخص منتج في الموقع بسعر بين min_price و max_price
@@ -196,13 +197,54 @@ async def find_cheapest_product(client: AsyncTLSClient, shop_url: str,
         
         page += 1
 
+    # ===== لو مفيش منتج، نجيب أي منتج متاح =====
+    if not best_product:
+        # نجيب أول منتج متاح
+        page = 1
+        while page <= max_pages:
+            url = f"{shop_url}/products.json?limit={limit}&page={page}"
+            try:
+                resp = await client.get(url, timeout=15)
+            except Exception:
+                break
+                
+            if resp.status_code != 200:
+                break
+                
+            try:
+                products = resp.json().get("products", [])
+            except Exception:
+                break
+                
+            if not products:
+                break
+                
+            for p in products:
+                for v in p.get("variants", []):
+                    if v.get("available", False):
+                        try:
+                            price = float(v.get("price") or 0)
+                        except (ValueError, TypeError):
+                            continue
+                        if price < 100:  # أي منتج أقل من 100
+                            best_product = (
+                                p.get("title", ""),
+                                str(p.get("id", "")),
+                                p.get("handle", ""),
+                                str(v.get("id", "")),
+                                v.get("price", "")
+                            )
+                            with _product_cache_lock:
+                                _product_cache[shop_url] = best_product + (_time.time(),)
+                            return best_product
+            page += 1
+
     if not best_product:
         raise Exception(f"No available products between ${min_price:.2f} and ${max_price:.2f} at {shop_url}")
     
     with _product_cache_lock:
         _product_cache[shop_url] = best_product + (_time.time(),)
     return best_product
-
 
 # ── Step 1: cart → checkout ───────────────────────────────────────────
 
