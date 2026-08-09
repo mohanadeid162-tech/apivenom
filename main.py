@@ -40,6 +40,12 @@ PORT             = int(os.environ.get("CHECKER_PORT", os.environ.get("PORT", "67
 REQUEST_TIMEOUT  = 90
 MEMORY_LIMIT_PCT = 90
 
+# ── إعدادات الأداء ────────────────────────────────────────────
+MAX_PRODUCTS_PER_CHECK = int(os.environ.get("MAX_PRODUCTS", "100"))  # عدد المنتجات لكل فحص
+MAX_WORKERS = int(os.environ.get("MAX_WORKERS", "24"))                # عدد الوركرز
+MAX_THREADS_PER_WORKER = int(os.environ.get("MAX_THREADS_PER_WORKER", "200"))  # خيوط لكل ووركر
+# إجمالي الخيوط = MAX_WORKERS * MAX_THREADS_PER_WORKER = 24 * 200 = 4800
+
 logging.basicConfig(level=logging.INFO, format="%(message)s",
                     handlers=[logging.StreamHandler()])
 _log = logging.getLogger("main")
@@ -151,7 +157,10 @@ async def check_card_async(cc: str, site: str, proxy: str) -> dict:
         pass
 
     try:
-        res = await auto_async.run_checkout_for_card_async(site, cc, proxy_url)
+        # ── نمرر max_products للدالة ──────────────────────────
+        res = await auto_async.run_checkout_for_card_async(
+            site, cc, proxy_url, max_products=MAX_PRODUCTS_PER_CHECK
+        )
     except Exception as e:
         err_msg = str(e).replace("\n", " ")[:150]
         _mark_dead(site, err_msg)
@@ -198,8 +207,11 @@ _stats = {
     "errors":     0,
     "by":         "VeNoM",
     "started":    time.strftime("%Y-%m-%d %H:%M:%S"),
+    "max_products": MAX_PRODUCTS_PER_CHECK,
+    "max_workers": MAX_WORKERS,
+    "threads_per_worker": MAX_THREADS_PER_WORKER,
+    "total_threads": MAX_WORKERS * MAX_THREADS_PER_WORKER,
 }
-
 
 
 def _is_memory_exceeded() -> bool:
@@ -355,15 +367,18 @@ async def route_check(
 if __name__ == "__main__":
     import multiprocessing
     cpu_count = multiprocessing.cpu_count()
-    workers   = max(1, cpu_count)
+    workers   = min(MAX_WORKERS, cpu_count * 2)  # استخدام الإعداد المخصص مع حد أقصى
 
     print("━" * 50)
     print("  VeNoM Checker API")
-    print(f"  Port         : {PORT}")
-    print(f"  Workers      : {workers}")
-    print(f"  Endpoint     : /VeNoM-xK9qPm2r")
-    print(f"  Status       : /VeNoM-status")
-    print(f"  Timeout      : {REQUEST_TIMEOUT}s")
+    print(f"  Port              : {PORT}")
+    print(f"  Workers           : {workers}")
+    print(f"  Threads/Worker    : {MAX_THREADS_PER_WORKER}")
+    print(f"  Total Threads     : {workers * MAX_THREADS_PER_WORKER}")
+    print(f"  Max Products/Site : {MAX_PRODUCTS_PER_CHECK}")
+    print(f"  Endpoint          : /VeNoM-xK9qPm2r")
+    print(f"  Status            : /VeNoM-status")
+    print(f"  Timeout           : {REQUEST_TIMEOUT}s")
     print("━" * 50)
 
     uvicorn.run(
