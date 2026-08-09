@@ -6,7 +6,7 @@
 import os
 
 # Port to listen on
-PORT = int(os.environ.get("CHECKER_PORT", os.environ.get("PORT", "8002")))
+PORT = int(os.environ.get("CHECKER_PORT", os.environ.get("PORT", "8000")))  # ← معدل لـ 8000
 
 # API key for auth — leave empty (or unset) to disable auth
 CHECKER_API_KEY = os.environ.get("CHECKER_API_KEY", "")
