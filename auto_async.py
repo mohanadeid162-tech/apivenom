@@ -119,13 +119,19 @@ class AsyncTLSClient:
 
 
 # ── Step 0: cheapest product ──────────────────────────────────────────
+# ── Step 0: cheapest product ──────────────────────────────────────────
 
 _product_cache: dict = {}
 _product_cache_lock = __import__("threading").Lock()
 _CACHE_TTL = 3600
 
 async def find_cheapest_product(client: AsyncTLSClient, shop_url: str, 
-                                min_price: float = 0.50, max_price: float = 30.0):
+                                min_price: float = 0.50, max_price: float = 30.0,
+                                max_products: int = 100):
+    """
+    تجيب أرخص منتج في الموقع بسعر بين min_price و max_price
+    max_products: الحد الأقصى للمنتجات اللي هتفحصها (افتراضي 100)
+    """
     now = _time.time()
     with _product_cache_lock:
         cached = _product_cache.get(shop_url)
@@ -134,27 +140,29 @@ async def find_cheapest_product(client: AsyncTLSClient, shop_url: str,
 
     best_price = float('inf')
     best_product = None
-    limit = 250
-    max_pages = 15
+    products_checked = 0
+    limit = min(250, max_products * 2)
+    max_pages = 5
+    page = 1
 
-    for page in range(1, max_pages + 1):
+    while products_checked < max_products and page <= max_pages:
         url = f"{shop_url}/products.json?limit={limit}&page={page}&sort_by=price-ascending"
         
         try:
             resp = await client.get(url, timeout=15)
         except Exception as e:
-            continue
+            break
             
         if resp.status_code != 200:
             body = resp.text[:200].lower()
             if "cloudflare" in body or "1003" in body:
                 raise Exception("cloudflare block")
-            continue
+            break
             
         try:
             products = resp.json().get("products", [])
         except Exception:
-            continue
+            break
             
         if not products:
             break
@@ -182,6 +190,11 @@ async def find_cheapest_product(client: AsyncTLSClient, shop_url: str,
                         with _product_cache_lock:
                             _product_cache[shop_url] = best_product + (_time.time(),)
                         return best_product
+            products_checked += 1
+            if products_checked >= max_products:
+                break
+        
+        page += 1
 
     if not best_product:
         raise Exception(f"No available products between ${min_price:.2f} and ${max_price:.2f} at {shop_url}")
@@ -868,7 +881,8 @@ async def send_submit_for_completion(client: AsyncTLSClient, shop_url: str,
 # ── Main async checkout orchestrator ─────────────────────────────────
 
 async def run_checkout_for_card_async(shop_url: str, card_entry: str,
-                                      proxy_url: str = "") -> CheckResult:
+                                      proxy_url: str = "",
+                                      max_products: int = 100) -> CheckResult:
     currency  = "USD"
     country   = "US"
     site_name = shop_url.replace("https://", "").replace("http://", "")
@@ -889,12 +903,13 @@ async def run_checkout_for_card_async(shop_url: str, card_entry: str,
     client = AsyncTLSClient(timeout=12, proxy_url=proxy_url,
                             impersonate=impersonate, user_agent=user_agent)
     try:
-        # Step 0 - Find cheapest product (0.5$ to 30$)
+        # Step 0 - Find cheapest product with max_products
         try:
             title, product_id, product_handle, variant_id, price = await find_cheapest_product(
                 client, shop_url,
                 min_price=0.5,
-                max_price=30.0
+                max_price=30.0,
+                max_products=max_products  # ← هنا
             )
             _ = title
         except Exception as e:
