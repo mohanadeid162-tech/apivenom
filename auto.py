@@ -202,11 +202,12 @@ _product_cache: Dict[str, tuple] = {}
 _product_cache_lock = threading.Lock()
 _PRODUCT_CACHE_TTL = 3600
 
-def find_cheapest_product(client: TLSClient, shop_url: str, min_price: float = 0.50, max_price: float = 30.0, max_products: int = 100) -> Tuple[str, str, str, str]:
+def find_cheapest_product(client: TLSClient, shop_url: str, 
+                          min_price: float = 0.01, 
+                          max_price: float = 50.0,
+                          max_products: int = 100) -> Tuple[str, str, str, str]:
     """
     تجيب أرخص منتج في الموقع بسعر بين min_price و max_price
-    بتحاول من /products.json أولاً، لو فشلت بتجيب من HTML
-    max_products: الحد الأقصى للمنتجات اللي هتفحصها (افتراضي 100)
     """
     now = time.time()
     with _product_cache_lock:
@@ -217,19 +218,66 @@ def find_cheapest_product(client: TLSClient, shop_url: str, min_price: float = 0
     best_price = float('inf')
     best_product = None
     products_checked = 0
-    
-    # ===== المحاولة الأولى: products.json =====
-    try:
-        limit = min(250, max_products * 2)  # نجيب 250 عشان نضمن تغطية كافية
-        page = 1
-        max_pages = 5  # 5 صفحات * 250 = 1250 منتج كحد أقصى
+    limit = min(250, max_products * 2)
+    max_pages = 5
+    page = 1
+
+    while products_checked < max_products and page <= max_pages:
+        url = f"{shop_url}/products.json?limit={limit}&page={page}&sort_by=price-ascending"
         
-        while products_checked < max_products:
-            url = f"{shop_url}/products.json?limit={limit}&page={page}&sort_by=price-ascending"
+        try:
+            resp = client.get(url, timeout=15)
+        except Exception as e:
+            break
             
+        if resp.status_code != 200:
+            break
+            
+        try:
+            data = resp.json()
+            products = data.get("products", [])
+        except Exception:
+            break
+            
+        if not products:
+            break
+            
+        for p in products:
+            for v in p.get("variants", []):
+                if not v.get("available", False):
+                    continue
+                try:
+                    price = float(v.get("price") or 0)
+                except (ValueError, TypeError):
+                    continue
+                if price < min_price or price > max_price:
+                    continue
+                if price < best_price:
+                    best_price = price
+                    best_product = (
+                        p.get("title", ""),
+                        str(p.get("id", "")),
+                        str(v.get("id", "")),
+                        v.get("price", "")
+                    )
+                    if price <= 2.0:
+                        with _product_cache_lock:
+                            _product_cache[shop_url] = best_product + (time.time(),)
+                        return best_product
+            products_checked += 1
+            if products_checked >= max_products:
+                break
+        
+        page += 1
+
+    # ===== لو مفيش منتج، نجيب أي منتج متاح =====
+    if not best_product:
+        page = 1
+        while page <= max_pages:
+            url = f"{shop_url}/products.json?limit={limit}&page={page}"
             try:
                 resp = client.get(url, timeout=15)
-            except Exception as e:
+            except Exception:
                 break
                 
             if resp.status_code != 200:
@@ -246,121 +294,23 @@ def find_cheapest_product(client: TLSClient, shop_url: str, min_price: float = 0
                 
             for p in products:
                 for v in p.get("variants", []):
-                    if not v.get("available", False):
-                        continue
-                    try:
-                        price = float(v.get("price") or 0)
-                    except (ValueError, TypeError):
-                        continue
-                    if price < min_price or price > max_price:
-                        continue
-                    if price < best_price:
-                        best_price = price
-                        best_product = (
-                            p.get("title", ""),
-                            str(p.get("id", "")),
-                            str(v.get("id", "")),
-                            v.get("price", "")
-                        )
-                        if price <= 2.0:
+                    if v.get("available", False):
+                        try:
+                            price = float(v.get("price") or 0)
+                        except (ValueError, TypeError):
+                            continue
+                        if price < 100:
+                            best_product = (
+                                p.get("title", ""),
+                                str(p.get("id", "")),
+                                str(v.get("id", "")),
+                                v.get("price", "")
+                            )
                             with _product_cache_lock:
                                 _product_cache[shop_url] = best_product + (time.time(),)
                             return best_product
-                products_checked += 1
-                if products_checked >= max_products:
-                    break
-            
             page += 1
-            if page > max_pages:
-                break
-                
-    except Exception as e:
-        pass  # لو فشل products.json، نكمل بالطريقة التانية
-    
-    # ===== المحاولة الثانية: HTML Scraping =====
-    if not best_product:
-        try:
-            # نجيب الصفحة الرئيسية
-            resp = client.get(shop_url, timeout=15)
-            if resp.status_code == 200:
-                html_content = resp.text
-                
-                # نبحث عن product cards في الـ HTML
-                json_pattern = r'<script[^>]*id="[^"]*"[^>]*>(\{.*?\})</script>'
-                json_matches = re.findall(json_pattern, html_content, re.DOTALL)
-                
-                for json_str in json_matches[:max_products]:
-                    try:
-                        data = json.loads(json_str)
-                        products = _extract_products_from_html_json(data)
-                        for title, product_id, variant_id, price in products[:max_products]:
-                            price_float = float(price)
-                            if min_price <= price_float <= max_price:
-                                if price_float < best_price:
-                                    best_price = price_float
-                                    best_product = (title, product_id, variant_id, price)
-                                    if price_float <= 2.0:
-                                        with _product_cache_lock:
-                                            _product_cache[shop_url] = best_product + (time.time(),)
-                                        return best_product
-                    except:
-                        continue
-                
-                # لو مش لاقي، نجيب /collections/all
-                if not best_product:
-                    try:
-                        resp = client.get(f"{shop_url}/collections/all", timeout=15)
-                        if resp.status_code == 200:
-                            html_content = resp.text
-                            product_links = re.findall(r'href="([^"]*\/products\/[^"]+)"', html_content)
-                            
-                            for link in product_links[:max_products]:
-                                if not link.startswith('http'):
-                                    link = shop_url + link
-                                
-                                try:
-                                    resp = client.get(link, timeout=15)
-                                    if resp.status_code != 200:
-                                        continue
-                                    
-                                    product_html = resp.text
-                                    
-                                    price_match = re.search(r'"price"\s*:\s*"([0-9.]+)"', product_html)
-                                    if not price_match:
-                                        continue
-                                    
-                                    price = float(price_match.group(1))
-                                    if price < min_price or price > max_price:
-                                        continue
-                                    
-                                    variant_match = re.search(r'"id"\s*:\s*"gid://shopify/ProductVariant/(\d+)"', product_html)
-                                    if not variant_match:
-                                        variant_match = re.search(r'data-variant-id="(\d+)"', product_html)
-                                    if not variant_match:
-                                        continue
-                                    
-                                    variant_id = variant_match.group(1)
-                                    
-                                    product_match = re.search(r'"id"\s*:\s*"gid://shopify/Product/(\d+)"', product_html)
-                                    product_id = product_match.group(1) if product_match else ""
-                                    
-                                    title_match = re.search(r'"title"\s*:\s*"([^"]+)"', product_html)
-                                    title = title_match.group(1) if title_match else "Product"
-                                    
-                                    if price < best_price:
-                                        best_price = price
-                                        best_product = (title, product_id, variant_id, str(price))
-                                        if price <= 2.0:
-                                            with _product_cache_lock:
-                                                _product_cache[shop_url] = best_product + (time.time(),)
-                                            return best_product
-                                except:
-                                    continue
-                    except:
-                        pass
-        except Exception as e:
-            pass
-    
+
     if not best_product:
         raise Exception(f"No available products between ${min_price:.2f} and ${max_price:.2f} at {shop_url}")
     
