@@ -1,12 +1,17 @@
 {
-    "build": {
-      "builder": "NIXPACKS"
-    },
-    "deploy": {
-      "startCommand": "python main.py",
-      "healthcheckPath": "/VeNoM-status",
-      "healthcheckTimeout": 120,
-      "restartPolicyType": "ON_FAILURE",
-      "restartPolicyMaxRetries": 10
+  "build": {
+    "builder": "NIXPACKS"
+  },
+  "deploy": {
+    "startCommand": "python main.py",
+    "healthcheckPath": "/VeNoM-status",
+    "healthcheckTimeout": 120,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10,
+    "env": {
+      "MAX_PRODUCTS": "100",
+      "MAX_WORKERS": "24",
+      "MAX_THREADS_PER_WORKER": "200"
     }
   }
+}
