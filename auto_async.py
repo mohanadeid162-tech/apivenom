@@ -945,12 +945,12 @@ async def run_checkout_for_card_async(shop_url: str, card_entry: str,
     client = AsyncTLSClient(timeout=12, proxy_url=proxy_url,
                             impersonate=impersonate, user_agent=user_agent)
     try:
-        # Step 0 - Find cheapest product with max_products
+        # Step 0 - Find cheapest product (0.01$ to 50$)
         try:
             title, product_id, product_handle, variant_id, price = await find_cheapest_product(
                 client, shop_url,
-                min_price=0.5,
-                max_price=30.0,
+                min_price=0.01,   # ← معدل
+                max_price=50.0,   # ← معدل
                 max_products=max_products
             )
             _ = title
@@ -1212,11 +1212,11 @@ async def run_checkout_for_card_async(shop_url: str, card_entry: str,
                     result.receipt_url = checkout_url + "/thank_you"
                     return result
 
-                # ===== PROCESSING (مع /thank_you) =====
+                # ===== PROCESSING =====
                 if receipt_type == "ProcessingReceipt":
                     result.status = CheckStatus.APPROVED
                     result.status_code = "PROCESSING"
-                    result.receipt_url = checkout_url + "/thank_you"  # 👈 التعديل
+                    result.receipt_url = checkout_url + "/thank_you"
                     return result
 
                 # ===== 3DS =====
