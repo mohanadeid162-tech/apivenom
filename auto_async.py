@@ -909,7 +909,7 @@ async def run_checkout_for_card_async(shop_url: str, card_entry: str,
                 client, shop_url,
                 min_price=0.5,
                 max_price=30.0,
-                max_products=max_products  # ← هنا
+                max_products=max_products
             )
             _ = title
         except Exception as e:
@@ -1163,17 +1163,27 @@ async def run_checkout_for_card_async(shop_url: str, card_entry: str,
 
                 result.status_code = extract_receipt_status_code(poll_body, receipt_type)
 
+                # ===== CHARGED =====
                 if receipt_type in ("SuccessfulReceipt", "ProcessedReceipt"):
-                    result.status      = CheckStatus.CHARGED
+                    result.status = CheckStatus.CHARGED
                     result.status_code = "ORDER_PLACED"
                     result.receipt_url = checkout_url + "/thank_you"
                     return result
 
+                # ===== PROCESSING (مع /thank_you) =====
+                if receipt_type == "ProcessingReceipt":
+                    result.status = CheckStatus.APPROVED
+                    result.status_code = "PROCESSING"
+                    result.receipt_url = checkout_url + "/thank_you"  # 👈 التعديل
+                    return result
+
+                # ===== 3DS =====
                 if receipt_type == "ActionRequiredReceipt":
-                    result.status      = CheckStatus.APPROVED
+                    result.status = CheckStatus.APPROVED
                     result.status_code = "3DS_REQUIRED"
                     return result
 
+                # ===== FAILED =====
                 if receipt_type == "FailedReceipt":
                     error_re   = re.compile(r'"code"\s*:\s*"([^"]+)"')
                     em         = error_re.search(poll_body)
